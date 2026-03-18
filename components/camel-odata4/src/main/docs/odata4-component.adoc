@@ -1,0 +1,262 @@
+= OData V4 Component
+:doctitle: OData V4
+:shortname: odata4
+:artifactid: camel-odata4
+:description: Perform OData V4 requests using direct HTTP calls. Replaces the deprecated camel-olingo4 component.
+:since: 4.19
+:supportlevel: Preview
+:tabs-sync-option:
+:component-header: Only producer is supported
+//Manually maintained attributes
+:camel-spring-boot-name: odata4
+
+*Since Camel {since}*
+
+*{component-header}*
+
+The OData V4 component uses direct HTTP requests (Apache HttpClient 5) to interact with
+OData 4.0 compliant services. It is the replacement for the deprecated
+xref:olingo4-component.adoc[Olingo4] component, which relied on
+http://olingo.apache.org/[Apache Olingo] (now retired and archived in the Apache Attic).
+
+The component supports reading entity sets, entities, simple and complex properties,
+counts, and using OData system query parameters. It supports creating, updating,
+patching, merging, and deleting entities. It also supports invoking OData actions.
+
+The component supports configuring custom HTTP headers and SSL for OData service
+connections. This allows configuring use of OAuth 2.0, Bearer tokens, or other
+authentication schemes as required by the target OData service.
+
+All request and response bodies use plain JSON strings. No Olingo-specific types
+are needed.
+
+Maven users will need to add the following dependency to their pom.xml
+for this component:
+
+[source,xml]
+----
+<dependency>
+    <groupId>org.apache.camel</groupId>
+    <artifactId>camel-odata4</artifactId>
+    <version>x.x.x</version>
+    <!-- use the same version as your Camel core version -->
+</dependency>
+----
+
+== URI format
+
+----
+odata4:operation/resourcePath?serviceUri=<service-root-uri>[&options]
+----
+
+Where *operation* is one of: `read`, `create`, `update`, `delete`, `patch`, `merge`, `action`.
+
+// component-configure options: START
+
+// component-configure options: END
+
+// component options: START
+include::partial$component-configure-options.adoc[]
+include::partial$component-endpoint-options.adoc[]
+include::partial$component-endpoint-headers.adoc[]
+// component options: END
+
+== Operations
+
+The following table shows the mapping between OData operations and HTTP methods:
+
+[width="100%",cols="20%,20%,60%",options="header"]
+|=======================================================================
+|Operation |HTTP Method |Description
+
+|`read` |GET |Read an entity set, entity, property, or count
+
+|`create` |POST |Create a new entity
+
+|`update` |PUT |Full update (replace) of an entity
+
+|`delete` |DELETE |Delete an entity
+
+|`patch` |PATCH |Partial update of an entity
+
+|`merge` |PATCH + `X-HTTP-Method: MERGE` |Legacy merge update (OData V2/V3 compatibility)
+
+|`action` |POST |Invoke a bound or unbound OData action
+|=======================================================================
+
+== Endpoint HTTP Headers
+
+The component-level configuration property *httpHeaders* supplies static HTTP headers
+for every request. For dynamic per-request headers (e.g., OAuth tokens that change),
+use the `CamelOData4.endpointHttpHeaders` exchange header. Response headers from the
+OData service are returned in the `CamelOData4.responseHttpHeaders` exchange header.
+Both are of type `java.util.Map<String, String>`.
+
+The component automatically sets the following OData-standard headers on every request:
+
+* `Accept: application/json`
+* `Content-Type: application/json;charset=utf-8` (configurable via `contentType`)
+* `OData-Version: 4.0`
+
+== OData Resource Type Mapping
+
+All request and response bodies are plain JSON strings. Unlike the deprecated Olingo4
+component, no Olingo-specific types are used.
+
+[width="100%",cols="30%,30%,40%",options="header"]
+|=======================================================================
+|OData Resource Type |Resource URI (resourcePath + keyPredicate) |Body Type
+
+|Entity set |`People` |JSON string (array in `value`)
+
+|Single entity |`People('russellwhyte')` |JSON string (object)
+
+|Property |`People('russellwhyte')/FirstName` |JSON string
+
+|Property value |`People('russellwhyte')/FirstName/$value` |Raw value string
+
+|Count |`People/$count` |Number string
+
+|Service document |`/` |JSON string
+
+|Metadata |`$metadata` |XML string
+|=======================================================================
+
+== Examples
+
+=== Read top 5 People ordered by FirstName
+
+[source,java]
+----
+from("direct:...")
+    .to("odata4://read/People?serviceUri=http://services.odata.org/TripPinRESTierService&$top=5&$orderby=FirstName%20asc");
+----
+
+=== Read an Airport using a dynamic key predicate
+
+[source,java]
+----
+from("direct:...")
+    .setHeader("CamelOData4.keyPredicate", header("id"))
+    .to("odata4://read/Airports?serviceUri=http://services.odata.org/TripPinRESTierService");
+----
+
+=== Create a new Person
+
+[source,java]
+----
+from("direct:...")
+    .setBody(constant("{\"UserName\":\"newuser\",\"FirstName\":\"New\",\"LastName\":\"User\"}"))
+    .to("odata4://create/People?serviceUri=http://services.odata.org/TripPinRESTierService");
+----
+
+=== Update an existing Person
+
+[source,java]
+----
+from("direct:...")
+    .setBody(constant("{\"FirstName\":\"UpdatedFirst\",\"LastName\":\"UpdatedLast\"}"))
+    .to("odata4://update/People?serviceUri=http://services.odata.org/TripPinRESTierService&keyPredicate='russellwhyte'");
+----
+
+=== Patch an entity (partial update)
+
+[source,java]
+----
+from("direct:...")
+    .setBody(constant("{\"FirstName\":\"PatchedFirst\"}"))
+    .to("odata4://patch/People?serviceUri=http://services.odata.org/TripPinRESTierService&keyPredicate='russellwhyte'");
+----
+
+=== Delete an entity
+
+[source,java]
+----
+from("direct:...")
+    .to("odata4://delete/People?serviceUri=http://services.odata.org/TripPinRESTierService&keyPredicate='russellwhyte'");
+----
+
+=== Invoke an OData action
+
+[source,java]
+----
+from("direct:...")
+    .to("odata4://action/ResetDataSource?serviceUri=http://services.odata.org/TripPinRESTierService");
+----
+
+=== Dynamic operation and resource path override
+
+All endpoint parameters can be overridden at runtime using exchange headers:
+
+[source,java]
+----
+from("direct:...")
+    .setHeader("CamelOData4.operation", constant("create"))
+    .setHeader("CamelOData4.resourcePath", constant("People"))
+    .setBody(constant("{\"UserName\":\"dynamic\"}"))
+    .to("odata4://read/Airports?serviceUri=http://services.odata.org/TripPinRESTierService");
+----
+
+In the above example, even though the URI says `read/Airports`, the headers override
+it to perform a `create` on `People`.
+
+=== Using per-request HTTP headers (e.g., Bearer token)
+
+[source,java]
+----
+from("direct:...")
+    .setHeader("CamelOData4.endpointHttpHeaders", constant(Map.of("Authorization", "Bearer my-token")))
+    .to("odata4://read/People?serviceUri=https://my-secure-odata-service.com/api");
+----
+
+== Migration from Olingo4
+
+This component is a drop-in replacement for the deprecated `camel-olingo4` component.
+The main differences are:
+
+[width="100%",cols="30%,35%,35%",options="header"]
+|=======================================================================
+|Feature |olingo4 |odata4
+
+|URI scheme |`olingo4://` |`odata4://`
+
+|Service URI |Component-level `serviceUri` option |Endpoint query parameter `serviceUri`
+
+|Body types |Olingo `ClientEntity`, `ClientEntitySet`, etc. |Plain JSON strings
+
+|Header prefix |`CamelOlingo4.` |`CamelOData4.`
+
+|Query params header |`CamelOlingo4.$top`, `CamelOlingo4.$filter` |URI options `$top`, `$filter` or `queryParams` map
+
+|Consumer support |Yes (read, uread) |No (producer only)
+
+|Batch operations |Yes |No (use `camel-http` directly)
+
+|Dependencies |Apache Olingo (archived) |Apache HttpClient 5 only
+|=======================================================================
+
+=== Migration examples
+
+[source,java]
+----
+// Before (olingo4)
+from("direct:...").to("olingo4://read/People?serviceUri=http://...&$top=5");
+
+// After (odata4)
+from("direct:...").to("odata4://read/People?serviceUri=http://...&$top=5");
+----
+
+[source,java]
+----
+// Before (olingo4)
+from("direct:...")
+    .setHeader("CamelOlingo4.keyPredicate", header("id"))
+    .to("olingo4://read/Airports?serviceUri=http://...");
+
+// After (odata4)
+from("direct:...")
+    .setHeader("CamelOData4.keyPredicate", header("id"))
+    .to("odata4://read/Airports?serviceUri=http://...");
+----
+
+include::spring-boot:partial$starter.adoc[]
